@@ -52,6 +52,12 @@ CREATE POLICY "Allow select for all users" ON "BookingList"
   FOR SELECT 
   USING (true);
 
+-- 모든 사용자가 예약 상태를 업데이트할 수 있도록 허용 (예약 취소용)
+CREATE POLICY "Allow update for all users" ON "BookingList"
+  FOR UPDATE 
+  USING (true)
+  WITH CHECK (true);
+
 -- updated_at 자동 업데이트 트리거 함수 생성
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -67,22 +73,3 @@ CREATE TRIGGER update_bookinglist_updated_at
     FOR EACH ROW 
     EXECUTE FUNCTION update_updated_at_column();
 ```
-
-## 4. 테이블 구조 설명
-
-- `id`: 예약 고유 ID (UUID)
-- `reserver_name`: 예약자 이름
-- `phone_number`: 예약자 연락처
-- `booking_date`: 예약 날짜
-- `start_time`: 시작 시간
-- `end_time`: 종료 시간
-- `total_hours`: 총 예약 시간
-- `total_price`: 총 결제 금액
-- `selected_time_slots`: 선택된 시간 슬롯 배열
-- `status`: 예약 상태 (pending, confirmed, cancelled)
-- `created_at`: 생성 시간
-- `updated_at`: 수정 시간
-
-## 5. 테스트
-
-애플리케이션에서 예약을 완료하면 Supabase 대시보드의 Table Editor에서 데이터가 정상적으로 저장되었는지 확인할 수 있습니다.

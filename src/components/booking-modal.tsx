@@ -17,7 +17,7 @@ import { Card } from '@/components/ui/card';
 import { CalendarDays, Clock, Users, MapPin, CreditCard, User, Phone } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createBooking, type Booking } from '@/lib/supabase';
+import { createBooking, type Booking, areTimeSlotsAvailable } from '@/lib/supabase';
 import axios from 'axios';
 
 interface TimeSlot {
@@ -66,14 +66,18 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
   };
 
   // 웹훅 호출 함수
-  const callBookingWebhook = async (bookingData: any) => {
+  const callBookingWebhook = async (bookingData: any, bookingId: string) => {
     try {
       const webhookUrl = 'https://hook.eu1.make.com/cdgx85qc81x89gk68bmq2g8wtbpxv79k';
+      
+      // 예약 확인 링크 생성
+      const bookingLink = `${window.location.origin}/booking/${bookingId}`;
       
       const webhookPayload = {
         event: 'booking_completed',
         timestamp: new Date().toISOString(),
         booking: {
+          id: bookingId,
           reserver_name: bookingData.reserver_name,
           phone_number: bookingData.phone_number,
           booking_date: bookingData.booking_date,
@@ -82,7 +86,13 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
           total_hours: bookingData.total_hours,
           total_price: bookingData.total_price,
           selected_time_slots: bookingData.selected_time_slots,
-          status: bookingData.status
+          status: bookingData.status,
+          booking_link: bookingLink // 예약 확인 링크 추가
+        },
+        notification: {
+          message: `${bookingData.reserver_name}님의 회의실 예약이 완료되었습니다.\n\n예약 확인 및 취소: ${bookingLink}\n\n예약 정보:\n• 날짜: ${bookingData.booking_date}\n• 시간: ${bookingData.start_time} - ${bookingData.end_time}\n• 금액: ${bookingData.total_price.toLocaleString()}원\n\n※ 취소는 이용 24시간 전까지 가능합니다.`,
+          phone: bookingData.phone_number,
+          booking_link: bookingLink
         }
       };
 
@@ -112,10 +122,27 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
       const startTime = sortedSlots[0].startTime;
       const endTime = sortedSlots[sortedSlots.length - 1].endTime;
       
+      // 예약 생성 전 재검증
+      const dateString = selectedDate.toISOString().split('T')[0];
+      const timeSlotsForValidation = selectedTimeSlots.map(slot => ({
+        startTime: slot.startTime,
+        endTime: slot.endTime
+      }));
+      
+      const stillAvailable = await areTimeSlotsAvailable(dateString, timeSlotsForValidation);
+      
+      if (!stillAvailable) {
+        alert('선택한 시간에 다른 예약이 생성되었습니다. 시간을 다시 선택해주세요.');
+        // 시간 선택 단계로 돌아가기
+        setStep('date-time');
+        setSelectedTimeSlots([]);
+        return;
+      }
+      
       const bookingData: Omit<Booking, 'id' | 'created_at' | 'updated_at'> = {
         reserver_name: reserverName.trim(),
         phone_number: phoneNumber.trim(),
-        booking_date: selectedDate.toISOString().split('T')[0],
+        booking_date: dateString,
         start_time: startTime,
         end_time: endTime,
         total_hours: totalHours,
@@ -129,7 +156,7 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
       console.log('예약 완료:', result);
       
       // 예약 성공 후 웹훅 호출
-      await callBookingWebhook(bookingData);
+      await callBookingWebhook(bookingData, result.id);
       
       // 성공 시 모달 닫기 및 상태 초기화
       onOpenChange(false);
@@ -144,8 +171,19 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
       
     } catch (error) {
       console.error('예약 실패:', error);
-      // TODO: 에러 메시지 표시 (toast 등)
-      alert('예약 중 오류가 발생했습니다. 다시 시도해주세요.');
+      
+      // DB 제약조건 위반 등 중복 예약 에러 처리
+      if (error instanceof Error) {
+        if (error.message.includes('duplicate') || error.message.includes('conflict') || error.message.includes('예약이 있습니다')) {
+          alert('선택한 시간에 이미 예약이 있습니다. 다른 시간을 선택해주세요.');
+          setStep('date-time');
+          setSelectedTimeSlots([]);
+        } else {
+          alert('예약 중 오류가 발생했습니다. 다시 시도해주세요.');
+        }
+      } else {
+        alert('예약 중 오류가 발생했습니다. 다시 시도해주세요.');
+      }
     } finally {
       setIsLoading(false);
     }

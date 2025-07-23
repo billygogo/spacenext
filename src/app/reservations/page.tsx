@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getBookings, type Booking } from '@/lib/supabase';
+import { getBookings, updateBookingStatus, type Booking } from '@/lib/supabase';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import Navigation from '@/components/navigation';
-import { CalendarDays, Clock, User, Phone, Search, Calendar, MapPin } from 'lucide-react';
+import { CalendarDays, Clock, User, Phone, Search, Calendar, MapPin, XCircle } from 'lucide-react';
 
 export default function ReservationsPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -15,6 +15,7 @@ export default function ReservationsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   useEffect(() => {
     loadBookings();
@@ -46,14 +47,75 @@ export default function ReservationsPage() {
     }
   };
 
+  // 취소 가능 여부 확인
+  const canCancel = (booking: Booking) => {
+    // 예약접수와 예약확정 상태만 취소 가능 (이미 취소된 예약은 불가)
+    if (booking.status !== 'confirmed' && booking.status !== 'pending') return false;
+    
+    // 예약 시간이 이미 지났는지만 확인 (현재 시간 이후라면 취소 가능)
+    const bookingDateTime = new Date(`${booking.booking_date}T${booking.start_time}`);
+    const now = new Date();
+    
+    return bookingDateTime.getTime() > now.getTime(); // 예약 시간이 현재보다 미래라면 취소 가능
+  };
+
+  const handleCancelBooking = async (booking: Booking) => {
+    if (!canCancel(booking)) {
+      alert('예약 시간이 이미 지나 취소할 수 없습니다.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `${booking.reserver_name}님의 예약을 취소하시겠습니까?\n\n예약 정보:\n• 날짜: ${formatDate(booking.booking_date)}\n• 시간: ${formatTime(booking.start_time)} - ${formatTime(booking.end_time)}\n• 금액: ${booking.total_price?.toLocaleString()}원\n\n취소된 예약은 되돌릴 수 없습니다.`
+    );
+
+    if (!confirmed) return;
+
+    if (!booking.id) {
+      alert('예약 ID가 없어 취소할 수 없습니다.');
+      return;
+    }
+
+    setCancellingId(booking.id);
+    try {
+      console.log('예약 취소 시작:', booking.id);
+      const result = await updateBookingStatus(booking.id, 'cancelled');
+      console.log('예약 취소 성공:', result);
+      
+      // 로컬 상태 업데이트
+      const updatedBookings = bookings.map(b => 
+        b.id === booking.id ? { ...b, status: 'cancelled' as const } : b
+      );
+      setBookings(updatedBookings);
+      
+      alert('예약이 성공적으로 취소되었습니다.');
+    } catch (error) {
+      console.error('예약 취소 실패 상세:', {
+        error,
+        errorMessage: error instanceof Error ? error.message : '알 수 없는 오류',
+        errorStack: error instanceof Error ? error.stack : null,
+        bookingId: booking.id
+      });
+      
+      let errorMessage = '예약 취소 중 오류가 발생했습니다.';
+      if (error instanceof Error) {
+        errorMessage += `\n오류 내용: ${error.message}`;
+      }
+      
+      alert(errorMessage + '\n다시 시도해주세요.');
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'confirmed':
-        return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">확정</Badge>;
       case 'pending':
-        return <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">대기중</Badge>;
+        return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">예약접수</Badge>;
+      case 'confirmed':
+        return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">예약확정</Badge>;
       case 'cancelled':
-        return <Badge className="bg-red-100 text-red-800 hover:bg-red-100">취소됨</Badge>;
+        return <Badge className="bg-red-100 text-red-800 hover:bg-red-100">예약취소</Badge>;
       default:
         return <Badge variant="secondary">{status}</Badge>;
     }
@@ -139,8 +201,16 @@ export default function ReservationsPage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <Card className="p-4">
             <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">{bookings.length}</div>
+              <div className="text-2xl font-bold text-gray-600">{bookings.length}</div>
               <div className="text-sm text-gray-600 dark:text-gray-400">전체 예약</div>
+            </div>
+          </Card>
+          <Card className="p-4">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-blue-600">
+                {bookings.filter(b => b.status === 'pending').length}
+              </div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">예약접수</div>
             </div>
           </Card>
           <Card className="p-4">
@@ -148,15 +218,7 @@ export default function ReservationsPage() {
               <div className="text-2xl font-bold text-green-600">
                 {bookings.filter(b => b.status === 'confirmed').length}
               </div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">확정 예약</div>
-            </div>
-          </Card>
-          <Card className="p-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-yellow-600">
-                {bookings.filter(b => b.status === 'pending').length}
-              </div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">대기중 예약</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">예약확정</div>
             </div>
           </Card>
           <Card className="p-4">
@@ -164,7 +226,7 @@ export default function ReservationsPage() {
               <div className="text-2xl font-bold text-red-600">
                 {bookings.filter(b => b.status === 'cancelled').length}
               </div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">취소된 예약</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">예약취소</div>
             </div>
           </Card>
         </div>
@@ -241,30 +303,58 @@ export default function ReservationsPage() {
                         </div>
                       </div>
                     </div>
-                    
-                    {/* 선택된 시간 슬롯 */}
-                    {booking.selected_time_slots && booking.selected_time_slots.length > 1 && (
-                      <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-                        <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">선택된 시간대:</div>
-                        <div className="flex flex-wrap gap-2">
-                          {booking.selected_time_slots.map((slot, index) => (
-                            <Badge key={index} variant="outline" className="text-xs">
-                              {slot}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+
                   </div>
                   
-                  {/* 가격 정보 */}
-                  <div className="text-right">
-                    <div className="text-2xl font-bold text-blue-600">
-                      {booking.total_price?.toLocaleString()}원
+                  {/* 가격 정보 및 액션 버튼 */}
+                  <div className="flex flex-col items-end gap-4">
+                    <div className="text-right">
+                      <div className="text-2xl font-bold text-blue-600">
+                        {booking.total_price?.toLocaleString()}원
+                      </div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">
+                        {new Date(booking.created_at!).toLocaleDateString('ko-KR')} 예약
+                      </div>
                     </div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400">
-                      {new Date(booking.created_at!).toLocaleDateString('ko-KR')} 예약
-                    </div>
+                    
+                    {/* 취소 버튼 */}
+                    {(booking.status === 'confirmed' || booking.status === 'pending') && (
+                      <div className="flex flex-col gap-2">
+                        {canCancel(booking) ? (
+                          <Button 
+                            variant="destructive" 
+                            size="sm"
+                            onClick={() => handleCancelBooking(booking)}
+                            disabled={cancellingId === booking.id}
+                            className="min-w-[100px]"
+                          >
+                            {cancellingId === booking.id ? (
+                              '취소 중...'
+                            ) : (
+                              <>
+                                <XCircle className="w-4 h-4 mr-1" />
+                                예약 취소
+                              </>
+                            )}
+                          </Button>
+                        ) : (
+                          <div className="text-center">
+                            <Button variant="outline" size="sm" disabled className="min-w-[100px]">
+                              취소 불가
+                            </Button>
+                            <p className="text-xs text-gray-500 mt-1">
+                              이용 시간 지남
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    {booking.status === 'cancelled' && (
+                      <Badge variant="outline" className="text-red-600 border-red-200">
+                        예약취소
+                      </Badge>
+                    )}
                   </div>
                 </div>
               </Card>

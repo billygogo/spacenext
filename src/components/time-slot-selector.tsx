@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Clock } from 'lucide-react';
+import { getBookedTimeSlots } from '@/lib/supabase';
 
 interface TimeSlot {
   id: string;
@@ -18,7 +19,7 @@ interface TimeSlotSelectorProps {
   className?: string;
 }
 
-const generateTimeSlots = (): TimeSlot[] => {
+const generateTimeSlots = async (date?: Date): Promise<TimeSlot[]> => {
   const slots: TimeSlot[] = [];
   
   for (let hour = 9; hour < 22; hour += 1) {
@@ -29,8 +30,37 @@ const generateTimeSlots = (): TimeSlot[] => {
       id: `${startHour}:00-${endHour}:00`,
       startTime: `${startHour}:00`,
       endTime: `${endHour}:00`,
-      available: Math.random() > 0.3
+      available: true // 초기값, 아래에서 실제 예약 데이터로 업데이트
     });
+  }
+  
+  // 실제 예약 데이터 확인해서 가용성 업데이트
+  if (date) {
+    try {
+      const dateString = date.toISOString().split('T')[0];
+      const bookedSlots = await getBookedTimeSlots(dateString);
+      
+      // 예약된 시간과 겹치는 슬롯들을 불가능으로 표시
+      slots.forEach(slot => {
+        bookedSlots.forEach(booking => {
+          const slotStart = slot.startTime;
+          const slotEnd = slot.endTime;
+          const bookingStart = booking.start_time;
+          const bookingEnd = booking.end_time;
+          
+          // 시간 겹침 확인
+          if (
+            (slotStart < bookingEnd && slotEnd > bookingStart) ||
+            (bookingStart < slotEnd && bookingEnd > slotStart)
+          ) {
+            slot.available = false;
+          }
+        });
+      });
+    } catch (error) {
+      console.error('예약 데이터 조회 실패:', error);
+      // 에러 시 모든 슬롯을 사용 가능으로 설정 (안전장치)
+    }
   }
   
   return slots;
@@ -42,7 +72,30 @@ export function TimeSlotSelector({
   onTimeSlotSelect,
   className = '' 
 }: TimeSlotSelectorProps) {
-  const [timeSlots] = useState<TimeSlot[]>(generateTimeSlots());
+  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // 날짜가 변경될 때마다 시간 슬롯 재생성
+  useEffect(() => {
+    const loadTimeSlots = async () => {
+      if (!selectedDate) {
+        setTimeSlots([]);
+        return;
+      }
+      
+      setIsLoading(true);
+      try {
+        const slots = await generateTimeSlots(selectedDate);
+        setTimeSlots(slots);
+      } catch (error) {
+        console.error('시간 슬롯 로드 실패:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadTimeSlots();
+  }, [selectedDate]);
 
   const handleTimeSlotClick = (slot: TimeSlot) => {
     if (!slot.available) return;
@@ -67,6 +120,17 @@ export function TimeSlotSelector({
         <div className="text-center text-gray-500 dark:text-gray-400">
           <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
           <p className="text-lg">날짜를 먼저 선택해주세요</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className={`bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg border ${className}`}>
+        <div className="text-center text-gray-500 dark:text-gray-400">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-lg">예약 가능 시간을 확인하는 중...</p>
         </div>
       </div>
     );
