@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useSession, signIn, signOut } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
-import { Menu, X, Calendar, Building, Users, Settings, LogIn, List } from 'lucide-react';
+import { Menu, X, Calendar, Building, Users, Settings, LogIn, LogOut, List, User } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { BookingModal } from '@/components/booking-modal';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -13,13 +14,14 @@ export default function Navigation() {
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const { setTheme, theme } = useTheme();
+  const { data: session, status } = useSession();
   const router = useRouter();
 
   const menuItems = [
     { href: '/', label: 'Home', icon: Building },
     { href: '/service', label: '서비스 소개', icon: Users },
     { href: '#booking', label: '예약하기', icon: Calendar },
-    { href: '/reservations', label: '예약현황', icon: List },
+    { href: '/reservations', label: '나의 예약', icon: List },
   ];
 
   useEffect(() => {
@@ -119,15 +121,55 @@ export default function Navigation() {
               </Button>
             </motion.div>
             
-            <motion.div
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <Button variant="outline" size="sm" className="hover:bg-blue-50 dark:hover:bg-blue-900/20 border-gray-300 dark:border-gray-600">
-                <LogIn className="w-4 h-4 mr-2" />
-                로그인
-              </Button>
-            </motion.div>
+            {session ? (
+              <motion.div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-2">
+                  {session.user?.image ? (
+                    <img 
+                      src={session.user.image} 
+                      alt={session.user.name || ''}
+                      className="w-8 h-8 rounded-full"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
+                      <User className="w-4 h-4 text-white" />
+                    </div>
+                  )}
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {session.user?.name || session.user?.email}
+                  </span>
+                </div>
+                <motion.div
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => signOut()}
+                    className="hover:bg-red-50 dark:hover:bg-red-900/20 border-gray-300 dark:border-gray-600"
+                  >
+                    <LogOut className="w-4 h-4 mr-2" />
+                    로그아웃
+                  </Button>
+                </motion.div>
+              </motion.div>
+            ) : (
+              <motion.div
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => signIn('google')}
+                  className="hover:bg-blue-50 dark:hover:bg-blue-900/20 border-gray-300 dark:border-gray-600"
+                >
+                  <LogIn className="w-4 h-4 mr-2" />
+                  Google 로그인
+                </Button>
+              </motion.div>
+            )}
             
             <motion.div
               whileHover={{ scale: 1.05 }}
@@ -228,10 +270,45 @@ export default function Navigation() {
                     <span className="mr-2 text-lg">{theme === 'dark' ? '🌞' : '🌙'}</span>
                     <span>테마 변경</span>
                   </Button>
-                  <Button variant="outline" size="sm" className="w-full hover:bg-blue-50 dark:hover:bg-blue-900/20">
-                    <LogIn className="w-4 h-4 mr-2" />
-                    로그인
-                  </Button>
+                  {session ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center space-x-3 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                        {session.user?.image ? (
+                          <img 
+                            src={session.user.image} 
+                            alt={session.user.name || ''}
+                            className="w-8 h-8 rounded-full"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
+                            <User className="w-4 h-4 text-white" />
+                          </div>
+                        )}
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {session.user?.name || session.user?.email}
+                        </span>
+                      </div>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => signOut()}
+                        className="w-full hover:bg-red-50 dark:hover:bg-red-900/20"
+                      >
+                        <LogOut className="w-4 h-4 mr-2" />
+                        로그아웃
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => signIn('google')}
+                      className="w-full hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                    >
+                      <LogIn className="w-4 h-4 mr-2" />
+                      Google 로그인
+                    </Button>
+                  )}
                   <Button 
                     size="sm" 
                     className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"

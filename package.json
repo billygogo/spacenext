@@ -40,7 +40,8 @@
     "ts-pattern": "^5",
     "zod": "^3",
     "zustand": "^4",
-    "@supabase/ssr": "0.5.2"
+    "@supabase/ssr": "0.5.2",
+    "next-auth": "^4.24.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

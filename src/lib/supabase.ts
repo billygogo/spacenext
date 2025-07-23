@@ -22,6 +22,7 @@ export interface Booking {
   id?: string;
   reserver_name: string;
   phone_number: string;
+  email?: string;
   booking_date: string;
   start_time: string;
   end_time: string;

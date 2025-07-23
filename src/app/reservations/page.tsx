@@ -1,15 +1,17 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
 import { getBookings, updateBookingStatus, type Booking } from '@/lib/supabase';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import Navigation from '@/components/navigation';
-import { CalendarDays, Clock, User, Phone, Search, Calendar, MapPin, XCircle } from 'lucide-react';
+import { CalendarDays, Clock, User, Phone, Search, Calendar, MapPin, XCircle, Mail, LogIn } from 'lucide-react';
 
 export default function ReservationsPage() {
+  const { data: session, status } = useSession();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [filteredBookings, setFilteredBookings] = useState<Booking[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -22,16 +24,23 @@ export default function ReservationsPage() {
   }, []);
 
   useEffect(() => {
+    // 로그인한 사용자의 이메일로 예약을 필터링
+    let userBookings = bookings;
+    if (session?.user?.email) {
+      userBookings = bookings.filter(booking => booking.email === session.user.email);
+    }
+    
+    // 검색어로 추가 필터링
     if (searchTerm.trim() === '') {
-      setFilteredBookings(bookings);
+      setFilteredBookings(userBookings);
     } else {
-      const filtered = bookings.filter(booking => 
+      const filtered = userBookings.filter(booking => 
         booking.reserver_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         booking.phone_number.includes(searchTerm)
       );
       setFilteredBookings(filtered);
     }
-  }, [searchTerm, bookings]);
+  }, [searchTerm, bookings, session?.user?.email]);
 
   const loadBookings = async () => {
     try {
@@ -168,6 +177,31 @@ export default function ReservationsPage() {
     );
   }
 
+  // 로그인하지 않은 사용자
+  if (!session?.user?.email) {
+    return (
+      <div>
+        <Navigation />
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pt-24">
+          <div className="container mx-auto px-4 py-8">
+            <div className="text-center max-w-md mx-auto">
+              <LogIn className="w-16 h-16 text-blue-500 mx-auto mb-4" />
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                로그인이 필요합니다
+              </h1>
+              <p className="text-gray-600 dark:text-gray-400 mb-6">
+                나의 예약 내역을 확인하려면 로그인해주세요.
+              </p>
+              <Button onClick={() => window.location.href = '/'} className="w-full">
+                홈으로 가서 로그인하기
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <Navigation />
@@ -176,10 +210,10 @@ export default function ReservationsPage() {
         {/* 헤더 */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            예약 현황
+            나의 예약 내역
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
-            전체 예약 내역을 확인하고 관리하세요
+            {session.user.email} 계정의 예약 내역입니다
           </p>
         </div>
 
@@ -201,14 +235,16 @@ export default function ReservationsPage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <Card className="p-4">
             <div className="text-center">
-              <div className="text-2xl font-bold text-gray-600">{bookings.length}</div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">전체 예약</div>
+              <div className="text-2xl font-bold text-gray-600">
+                {filteredBookings.length}
+              </div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">나의 예약</div>
             </div>
           </Card>
           <Card className="p-4">
             <div className="text-center">
               <div className="text-2xl font-bold text-blue-600">
-                {bookings.filter(b => b.status === 'pending').length}
+                {filteredBookings.filter(b => b.status === 'pending').length}
               </div>
               <div className="text-sm text-gray-600 dark:text-gray-400">예약접수</div>
             </div>
@@ -216,7 +252,7 @@ export default function ReservationsPage() {
           <Card className="p-4">
             <div className="text-center">
               <div className="text-2xl font-bold text-green-600">
-                {bookings.filter(b => b.status === 'confirmed').length}
+                {filteredBookings.filter(b => b.status === 'confirmed').length}
               </div>
               <div className="text-sm text-gray-600 dark:text-gray-400">예약확정</div>
             </div>
@@ -224,7 +260,7 @@ export default function ReservationsPage() {
           <Card className="p-4">
             <div className="text-center">
               <div className="text-2xl font-bold text-red-600">
-                {bookings.filter(b => b.status === 'cancelled').length}
+                {filteredBookings.filter(b => b.status === 'cancelled').length}
               </div>
               <div className="text-sm text-gray-600 dark:text-gray-400">예약취소</div>
             </div>
@@ -238,11 +274,19 @@ export default function ReservationsPage() {
               <div className="text-center text-gray-500 dark:text-gray-400">
                 <Calendar className="w-12 h-12 mx-auto mb-4 opacity-50" />
                 <p className="text-lg mb-2">
-                  {searchTerm ? '검색 결과가 없습니다' : '예약 내역이 없습니다'}
+                  {searchTerm ? '검색 결과가 없습니다' : '아직 예약 내역이 없습니다'}
                 </p>
-                <p className="text-sm">
+                <p className="text-sm mb-4">
                   {searchTerm ? '다른 검색어로 시도해보세요' : '첫 번째 회의실 예약을 해보세요!'}
                 </p>
+                {!searchTerm && (
+                  <Button 
+                    onClick={() => window.location.href = '/'}
+                    className="mt-2"
+                  >
+                    지금 예약하기
+                  </Button>
+                )}
               </div>
             </Card>
           ) : (
@@ -280,6 +324,18 @@ export default function ReservationsPage() {
                           <div className="text-sm text-gray-600 dark:text-gray-400">연락처</div>
                         </div>
                       </div>
+                      
+                      {booking.email && (
+                        <div className="flex items-center gap-3">
+                          <Mail className="w-4 h-4 text-purple-600" />
+                          <div>
+                            <div className="font-medium text-gray-900 dark:text-white">
+                              {booking.email}
+                            </div>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">이메일</div>
+                          </div>
+                        </div>
+                      )}
                       
                       <div className="flex items-center gap-3">
                         <CalendarDays className="w-4 h-4 text-purple-600" />

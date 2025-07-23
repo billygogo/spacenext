@@ -17,7 +17,8 @@ import {
   CreditCard,
   AlertTriangle,
   CheckCircle,
-  XCircle
+  XCircle,
+  Mail
 } from 'lucide-react';
 
 export default function BookingDetailsPage() {
@@ -210,6 +211,18 @@ export default function BookingDetailsPage() {
                       <div className="text-sm text-gray-600 dark:text-gray-400">연락처</div>
                     </div>
                   </div>
+                  
+                  {booking.email && (
+                    <div className="flex items-center gap-4">
+                      <Mail className="w-5 h-5 text-indigo-600" />
+                      <div>
+                        <div className="font-medium text-gray-900 dark:text-white">
+                          {booking.email}
+                        </div>
+                        <div className="text-sm text-gray-600 dark:text-gray-400">이메일</div>
+                      </div>
+                    </div>
+                  )}
                   
                   <div className="flex items-center gap-4">
                     <CalendarDays className="w-5 h-5 text-purple-600" />

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useSession } from 'next-auth/react';
 import {
   Sheet,
   SheetContent,
@@ -33,6 +34,7 @@ interface BookingModalProps {
 }
 
 export function BookingModal({ open, onOpenChange }: BookingModalProps) {
+  const { data: session } = useSession();
   const [selectedDate, setSelectedDate] = useState<Date>();
   const [selectedTimeSlots, setSelectedTimeSlots] = useState<TimeSlot[]>([]);
   const [reserverName, setReserverName] = useState('');
@@ -142,6 +144,7 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
       const bookingData: Omit<Booking, 'id' | 'created_at' | 'updated_at'> = {
         reserver_name: reserverName.trim(),
         phone_number: phoneNumber.trim(),
+        email: session?.user?.email || undefined,
         booking_date: dateString,
         start_time: startTime,
         end_time: endTime,
@@ -383,6 +386,16 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
                       <div className="text-sm text-gray-600">{phoneNumber}</div>
                     </div>
                   </div>
+                  
+                  {session?.user?.email && (
+                    <div className="flex items-center gap-3">
+                      <User className="w-5 h-5 text-purple-600" />
+                      <div>
+                        <div className="font-medium">이메일</div>
+                        <div className="text-sm text-gray-600">{session.user.email}</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </Card>
 
