@@ -14,7 +14,11 @@ import { TimeSlotSelector } from '@/components/time-slot-selector';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Card } from '@/components/ui/card';
-import { CalendarDays, Clock, Users, MapPin, CreditCard } from 'lucide-react';
+import { CalendarDays, Clock, Users, MapPin, CreditCard, User, Phone } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { createBooking, type Booking } from '@/lib/supabase';
+import axios from 'axios';
 
 interface TimeSlot {
   id: string;
@@ -31,7 +35,10 @@ interface BookingModalProps {
 export function BookingModal({ open, onOpenChange }: BookingModalProps) {
   const [selectedDate, setSelectedDate] = useState<Date>();
   const [selectedTimeSlots, setSelectedTimeSlots] = useState<TimeSlot[]>([]);
-  const [step, setStep] = useState<'date-time' | 'confirmation'>('date-time');
+  const [reserverName, setReserverName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [step, setStep] = useState<'date-time' | 'user-info' | 'confirmation'>('date-time');
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleDateSelect = (date: Date) => {
     setSelectedDate(date);
@@ -43,27 +50,115 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
   };
 
   const handleNext = () => {
-    if (selectedDate && selectedTimeSlots.length > 0) {
+    if (step === 'date-time' && selectedDate && selectedTimeSlots.length > 0) {
+      setStep('user-info');
+    } else if (step === 'user-info' && reserverName.trim() && phoneNumber.trim()) {
       setStep('confirmation');
     }
   };
 
   const handleBack = () => {
-    setStep('date-time');
+    if (step === 'confirmation') {
+      setStep('user-info');
+    } else if (step === 'user-info') {
+      setStep('date-time');
+    }
   };
 
-  const handleBooking = () => {
-    console.log('예약 요청:', {
-      date: selectedDate,
-      timeSlots: selectedTimeSlots,
-    });
-    onOpenChange(false);
-    setStep('date-time');
-    setSelectedDate(undefined);
-    setSelectedTimeSlots([]);
+  // 웹훅 호출 함수
+  const callBookingWebhook = async (bookingData: any) => {
+    try {
+      const webhookUrl = 'https://hook.eu1.make.com/cdgx85qc81x89gk68bmq2g8wtbpxv79k';
+      
+      const webhookPayload = {
+        event: 'booking_completed',
+        timestamp: new Date().toISOString(),
+        booking: {
+          reserver_name: bookingData.reserver_name,
+          phone_number: bookingData.phone_number,
+          booking_date: bookingData.booking_date,
+          start_time: bookingData.start_time,
+          end_time: bookingData.end_time,
+          total_hours: bookingData.total_hours,
+          total_price: bookingData.total_price,
+          selected_time_slots: bookingData.selected_time_slots,
+          status: bookingData.status
+        }
+      };
+
+      await axios.post(webhookUrl, webhookPayload, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 10000 // 10초 타임아웃
+      });
+      
+      console.log('웹훅 호출 성공:', webhookPayload);
+    } catch (error) {
+      console.error('웹훅 호출 실패:', error);
+      // 웹훅 실패는 예약 성공에 영향을 주지 않도록 함
+    }
   };
 
-  const canProceed = selectedDate && selectedTimeSlots.length > 0;
+  const handleBooking = async () => {
+    if (!selectedDate || selectedTimeSlots.length === 0 || !reserverName.trim() || !phoneNumber.trim()) {
+      return;
+    }
+
+    setIsLoading(true);
+    
+    try {
+      const sortedSlots = [...selectedTimeSlots].sort((a, b) => a.startTime.localeCompare(b.startTime));
+      const startTime = sortedSlots[0].startTime;
+      const endTime = sortedSlots[sortedSlots.length - 1].endTime;
+      
+      const bookingData: Omit<Booking, 'id' | 'created_at' | 'updated_at'> = {
+        reserver_name: reserverName.trim(),
+        phone_number: phoneNumber.trim(),
+        booking_date: selectedDate.toISOString().split('T')[0],
+        start_time: startTime,
+        end_time: endTime,
+        total_hours: totalHours,
+        total_price: finalPrice,
+        selected_time_slots: selectedTimeSlots.map(slot => `${slot.startTime}-${slot.endTime}`),
+        status: 'confirmed'
+      };
+
+      const result = await createBooking(bookingData);
+      
+      console.log('예약 완료:', result);
+      
+      // 예약 성공 후 웹훅 호출
+      await callBookingWebhook(bookingData);
+      
+      // 성공 시 모달 닫기 및 상태 초기화
+      onOpenChange(false);
+      setStep('date-time');
+      setSelectedDate(undefined);
+      setSelectedTimeSlots([]);
+      setReserverName('');
+      setPhoneNumber('');
+      
+      // TODO: 성공 메시지 표시 (toast 등)
+      alert('예약이 완료되었습니다!');
+      
+    } catch (error) {
+      console.error('예약 실패:', error);
+      // TODO: 에러 메시지 표시 (toast 등)
+      alert('예약 중 오류가 발생했습니다. 다시 시도해주세요.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const canProceed = (() => {
+    if (step === 'date-time') {
+      return selectedDate && selectedTimeSlots.length > 0;
+    } else if (step === 'user-info') {
+      return reserverName.trim() && phoneNumber.trim();
+    }
+    return true;
+  })();
 
   const totalHours = selectedTimeSlots.length;
   const pricePerHour = 10000;
@@ -89,7 +184,9 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
           <SheetDescription>
             {step === 'date-time' 
               ? '날짜와 시간을 선택하여 회의실을 예약하세요'
-              : '예약 정보를 확인하고 결제를 진행하세요'
+              : step === 'user-info'
+                ? '예약자 정보를 입력해주세요'
+                : '예약 정보를 확인하고 결제를 진행하세요'
             }
           </SheetDescription>
         </SheetHeader>
@@ -124,6 +221,70 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
                   onTimeSlotSelect={handleTimeSlotSelect}
                 />
               </div>
+            </div>
+          ) : step === 'user-info' ? (
+            <div className="space-y-6">
+              {/* 예약자 정보 */}
+              <Card className="p-6">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <User className="w-5 h-5 text-blue-600" />
+                  예약자 정보
+                </h3>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="reserverName">예약자 이름 *</Label>
+                    <Input
+                      id="reserverName"
+                      type="text"
+                      placeholder="이름을 입력해주세요"
+                      value={reserverName}
+                      onChange={(e) => setReserverName(e.target.value)}
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="phoneNumber">핸드폰 번호 *</Label>
+                    <Input
+                      id="phoneNumber"
+                      type="tel"
+                      placeholder="010-1234-5678"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+              </Card>
+
+              {/* 예약 요약 */}
+              <Card className="p-6">
+                <h3 className="text-lg font-semibold mb-4">선택한 예약 정보</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <CalendarDays className="w-4 h-4 text-blue-600" />
+                    <div className="text-sm">
+                      <span className="font-medium">날짜:</span> {selectedDate?.toLocaleDateString('ko-KR', { 
+                        year: 'numeric', 
+                        month: 'long', 
+                        day: 'numeric',
+                        weekday: 'long'
+                      })}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Clock className="w-4 h-4 text-green-600" />
+                    <div className="text-sm">
+                      <span className="font-medium">시간:</span> {getTimeRange()} ({totalHours}시간)
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <CreditCard className="w-4 h-4 text-purple-600" />
+                    <div className="text-sm">
+                      <span className="font-medium">예상 금액:</span> {finalPrice.toLocaleString()}원
+                    </div>
+                  </div>
+                </div>
+              </Card>
             </div>
           ) : (
             <div className="space-y-6">
@@ -170,10 +331,18 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
                   </div>
                   
                   <div className="flex items-center gap-3">
-                    <Users className="w-5 h-5 text-orange-600" />
+                    <User className="w-5 h-5 text-orange-600" />
                     <div>
-                      <div className="font-medium">이용 인원</div>
-                      <div className="text-sm text-gray-600">4명 (변경 가능)</div>
+                      <div className="font-medium">예약자</div>
+                      <div className="text-sm text-gray-600">{reserverName}</div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-3">
+                    <Phone className="w-5 h-5 text-green-600" />
+                    <div>
+                      <div className="font-medium">연락처</div>
+                      <div className="text-sm text-gray-600">{phoneNumber}</div>
                     </div>
                   </div>
                 </div>
@@ -219,20 +388,25 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
         </div>
 
         <SheetFooter className="flex gap-3">
-          {step === 'confirmation' && (
+          {(step === 'confirmation' || step === 'user-info') && (
             <Button variant="outline" onClick={handleBack}>
               이전으로
             </Button>
           )}
           <Button
-            onClick={step === 'date-time' ? handleNext : handleBooking}
-            disabled={step === 'date-time' && !canProceed}
+            onClick={step === 'confirmation' ? handleBooking : handleNext}
+            disabled={!canProceed || isLoading}
             className="flex-1"
           >
-            {step === 'date-time' 
-              ? (canProceed ? '다음 단계' : '날짜와 시간을 선택하세요')
-              : '결제하고 예약 완료'
-            }
+            {isLoading ? (
+              '예약 처리 중...'
+            ) : step === 'date-time' ? (
+              canProceed ? '다음 단계' : '날짜와 시간을 선택하세요'
+            ) : step === 'user-info' ? (
+              canProceed ? '다음 단계' : '예약자 정보를 입력하세요'
+            ) : (
+              '결제하고 예약 완료'
+            )}
           </Button>
         </SheetFooter>
       </SheetContent>
