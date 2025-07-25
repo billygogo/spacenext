@@ -18,7 +18,7 @@ import { Card } from '@/components/ui/card';
 import { CalendarDays, Clock, Users, MapPin, CreditCard, User, Phone } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createBooking, type Booking, areTimeSlotsAvailable } from '@/lib/supabase';
+import { createBooking, type Booking, areTimeSlotsAvailable, testSupabaseConnection } from '@/lib/supabase';
 import axios from 'axios';
 
 interface TimeSlot {
@@ -39,6 +39,7 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
   const [selectedTimeSlots, setSelectedTimeSlots] = useState<TimeSlot[]>([]);
   const [reserverName, setReserverName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [email, setEmail] = useState('');
   const [step, setStep] = useState<'date-time' | 'user-info' | 'confirmation'>('date-time');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -51,19 +52,19 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
     setSelectedTimeSlots(timeSlots);
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (step === 'date-time' && selectedDate && selectedTimeSlots.length > 0) {
       setStep('user-info');
-    } else if (step === 'user-info' && reserverName.trim() && phoneNumber.trim()) {
-      setStep('confirmation');
+    } else if (step === 'user-info' && reserverName.trim() && phoneNumber.trim() && email.trim()) {
+      await handleBooking();
     }
   };
 
   const handleBack = () => {
-    if (step === 'confirmation') {
-      setStep('user-info');
-    } else if (step === 'user-info') {
+    if (step === 'user-info') {
       setStep('date-time');
+    } else if (step === 'confirmation') {
+      setStep('user-info');
     }
   };
 
@@ -89,7 +90,7 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
           total_price: bookingData.total_price,
           selected_time_slots: bookingData.selected_time_slots,
           status: bookingData.status,
-          booking_link: bookingLink // 예약 확인 링크 추가
+          booking_link: bookingLink
         },
         notification: {
           message: `${bookingData.reserver_name}님의 회의실 예약이 완료되었습니다.\n\n예약 확인 및 취소: ${bookingLink}\n\n예약 정보:\n• 날짜: ${bookingData.booking_date}\n• 시간: ${bookingData.start_time} - ${bookingData.end_time}\n• 금액: ${bookingData.total_price.toLocaleString()}원\n\n※ 취소는 이용 24시간 전까지 가능합니다.`,
@@ -102,24 +103,25 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
         headers: {
           'Content-Type': 'application/json',
         },
-        timeout: 10000 // 10초 타임아웃
+        timeout: 10000
       });
       
       console.log('웹훅 호출 성공:', webhookPayload);
     } catch (error) {
       console.error('웹훅 호출 실패:', error);
-      // 웹훅 실패는 예약 성공에 영향을 주지 않도록 함
     }
   };
 
   const handleBooking = async () => {
-    if (!selectedDate || selectedTimeSlots.length === 0 || !reserverName.trim() || !phoneNumber.trim()) {
+    if (!selectedDate || selectedTimeSlots.length === 0 || !reserverName.trim() || !phoneNumber.trim() || !email.trim()) {
       return;
     }
 
     setIsLoading(true);
     
     try {
+      // 예약 생성 프로세스 시작
+      console.log('🚀 예약 생성 프로세스 시작');
       const sortedSlots = [...selectedTimeSlots].sort((a, b) => a.startTime.localeCompare(b.startTime));
       const startTime = sortedSlots[0].startTime;
       const endTime = sortedSlots[sortedSlots.length - 1].endTime;
@@ -131,11 +133,11 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
         endTime: slot.endTime
       }));
       
+      console.log('🔍 시간 슬롯 가용성 확인 중...', { dateString, timeSlotsForValidation });
       const stillAvailable = await areTimeSlotsAvailable(dateString, timeSlotsForValidation);
       
       if (!stillAvailable) {
         alert('선택한 시간에 다른 예약이 생성되었습니다. 시간을 다시 선택해주세요.');
-        // 시간 선택 단계로 돌아가기
         setStep('date-time');
         setSelectedTimeSlots([]);
         return;
@@ -144,7 +146,7 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
       const bookingData: Omit<Booking, 'id' | 'created_at' | 'updated_at'> = {
         reserver_name: reserverName.trim(),
         phone_number: phoneNumber.trim(),
-        email: session?.user?.email || undefined,
+        email: email.trim(),
         booking_date: dateString,
         start_time: startTime,
         end_time: endTime,
@@ -154,38 +156,39 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
         status: 'confirmed'
       };
 
+      console.log('📝 예약 데이터 생성:', bookingData);
+      console.log('🚀 Supabase에 예약 저장 시도 중...');
+      
       const result = await createBooking(bookingData);
       
-      console.log('예약 완료:', result);
+      console.log('✅ 예약 성공! DB 저장된 데이터:', result);
       
       // 예약 성공 후 웹훅 호출
+      console.log('📢 웹훅 호출 시작...');
       await callBookingWebhook(bookingData, result.id);
+      console.log('📢 웹훅 호출 완료');
       
-      // 성공 시 모달 닫기 및 상태 초기화
-      onOpenChange(false);
-      setStep('date-time');
-      setSelectedDate(undefined);
-      setSelectedTimeSlots([]);
-      setReserverName('');
-      setPhoneNumber('');
-      
-      // TODO: 성공 메시지 표시 (toast 등)
-      alert('예약이 완료되었습니다!');
+      // 성공 시 확인 단계로 이동
+      setStep('confirmation');
       
     } catch (error) {
-      console.error('예약 실패:', error);
+      console.error('❌ 예약 실패 - 상세 에러:', error);
       
-      // DB 제약조건 위반 등 중복 예약 에러 처리
+      // 더 자세한 에러 정보 로깅
       if (error instanceof Error) {
+        console.error('에러 메시지:', error.message);
+        console.error('에러 스택:', error.stack);
+        
         if (error.message.includes('duplicate') || error.message.includes('conflict') || error.message.includes('예약이 있습니다')) {
           alert('선택한 시간에 이미 예약이 있습니다. 다른 시간을 선택해주세요.');
           setStep('date-time');
           setSelectedTimeSlots([]);
         } else {
-          alert('예약 중 오류가 발생했습니다. 다시 시도해주세요.');
+          alert(`예약 중 오류가 발생했습니다: ${error.message}\n\n개발자 도구 콘솔을 확인해주세요.`);
         }
       } else {
-        alert('예약 중 오류가 발생했습니다. 다시 시도해주세요.');
+        console.error('알 수 없는 에러 타입:', typeof error, error);
+        alert('예약 중 알 수 없는 오류가 발생했습니다. 다시 시도해주세요.');
       }
     } finally {
       setIsLoading(false);
@@ -196,7 +199,7 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
     if (step === 'date-time') {
       return selectedDate && selectedTimeSlots.length > 0;
     } else if (step === 'user-info') {
-      return reserverName.trim() && phoneNumber.trim();
+      return reserverName.trim() && phoneNumber.trim() && email.trim();
     }
     return true;
   })();
@@ -217,8 +220,25 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
     return `${firstSlot.startTime} - ${lastSlot.endTime}`;
   };
 
+  const resetForm = () => {
+    setStep('date-time');
+    setSelectedDate(undefined);
+    setSelectedTimeSlots([]);
+    setReserverName('');
+    setPhoneNumber('');
+    setEmail('');
+  };
+
+  const handleClose = () => {
+    onOpenChange(false);
+    // 약간의 지연 후 상태 초기화 (모달 닫힘 애니메이션 완료 후)
+    setTimeout(() => {
+      resetForm();
+    }, 200);
+  };
+
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={handleClose}>
       <SheetContent className="sm:max-w-[900px] w-full h-full overflow-y-auto">
         <SheetHeader className="space-y-1">
           <SheetTitle className="text-2xl">회의실 예약하기</SheetTitle>
@@ -227,13 +247,13 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
               ? '날짜와 시간을 선택하여 회의실을 예약하세요'
               : step === 'user-info'
                 ? '예약자 정보를 입력해주세요'
-                : '예약 정보를 확인하고 결제를 진행하세요'
+                : '예약이 완료되었습니다'
             }
           </SheetDescription>
         </SheetHeader>
 
         <div className="py-6">
-          {step === 'date-time' ? (
+          {step === 'date-time' && (
             <div className="space-y-6">
               {/* 날짜 선택 */}
               <div>
@@ -263,7 +283,9 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
                 />
               </div>
             </div>
-          ) : step === 'user-info' ? (
+          )}
+
+          {step === 'user-info' && (
             <div className="space-y-6">
               {/* 예약자 정보 */}
               <Card className="p-6">
@@ -291,6 +313,17 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
                       placeholder="010-1234-5678"
                       value={phoneNumber}
                       onChange={(e) => setPhoneNumber(e.target.value)}
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">이메일 주소 *</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="example@email.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
                       className="w-full"
                     />
                   </div>
@@ -327,9 +360,22 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
                 </div>
               </Card>
             </div>
-          ) : (
+          )}
+
+          {step === 'confirmation' && (
             <div className="space-y-6">
-              {/* 예약 요약 */}
+              {/* 예약 완료 메시지 */}
+              <Card className="p-6 text-center bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
+                <div className="text-green-600 dark:text-green-400 text-2xl mb-2">✅</div>
+                <h3 className="text-lg font-semibold text-green-800 dark:text-green-200 mb-2">
+                  예약이 완료되었습니다!
+                </h3>
+                <p className="text-sm text-green-700 dark:text-green-300">
+                  예약 확인 메시지가 곧 발송됩니다.
+                </p>
+              </Card>
+
+              {/* 예약 정보 */}
               <Card className="p-6">
                 <h3 className="text-lg font-semibold mb-4">예약 정보</h3>
                 <div className="space-y-4">
@@ -387,15 +433,13 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
                     </div>
                   </div>
                   
-                  {session?.user?.email && (
-                    <div className="flex items-center gap-3">
-                      <User className="w-5 h-5 text-purple-600" />
-                      <div>
-                        <div className="font-medium">이메일</div>
-                        <div className="text-sm text-gray-600">{session.user.email}</div>
-                      </div>
+                  <div className="flex items-center gap-3">
+                    <User className="w-5 h-5 text-purple-600" />
+                    <div>
+                      <div className="font-medium">이메일</div>
+                      <div className="text-sm text-gray-600">{email}</div>
                     </div>
-                  )}
+                  </div>
                 </div>
               </Card>
 
@@ -439,26 +483,36 @@ export function BookingModal({ open, onOpenChange }: BookingModalProps) {
         </div>
 
         <SheetFooter className="flex gap-3">
-          {(step === 'confirmation' || step === 'user-info') && (
+          {step !== 'date-time' && step !== 'confirmation' && (
             <Button variant="outline" onClick={handleBack}>
               이전으로
             </Button>
           )}
-          <Button
-            onClick={step === 'confirmation' ? handleBooking : handleNext}
-            disabled={!canProceed || isLoading}
-            className="flex-1"
-          >
-            {isLoading ? (
-              '예약 처리 중...'
-            ) : step === 'date-time' ? (
-              canProceed ? '다음 단계' : '날짜와 시간을 선택하세요'
-            ) : step === 'user-info' ? (
-              canProceed ? '다음 단계' : '예약자 정보를 입력하세요'
-            ) : (
-              '결제하고 예약 완료'
-            )}
-          </Button>
+          {step !== 'confirmation' && (
+            <Button
+              onClick={handleNext}
+              disabled={!canProceed || isLoading}
+              className="flex-1"
+            >
+              {isLoading ? (
+                '처리 중...'
+              ) : step === 'date-time' ? (
+                canProceed ? '다음 단계' : '날짜와 시간을 선택하세요'
+              ) : step === 'user-info' ? (
+                canProceed ? '예약하기' : '예약자 정보를 입력하세요'
+              ) : (
+                '다음 단계'
+              )}
+            </Button>
+          )}
+          {step === 'confirmation' && (
+            <Button
+              onClick={handleClose}
+              className="flex-1"
+            >
+              확인
+            </Button>
+          )}
         </SheetFooter>
       </SheetContent>
     </Sheet>

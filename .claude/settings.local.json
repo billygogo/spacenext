@@ -1,0 +1,9 @@
+{
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase",
+    "playwright",
+    "pymm-ai",
+    "vooster-ai"
+  ]
+}

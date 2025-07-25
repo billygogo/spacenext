@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { getBookings, updateBookingStatus, type Booking } from '@/lib/supabase';
+import { getBookings, getBookingsByEmail, updateBookingStatus, type Booking } from '@/lib/supabase';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,37 +20,46 @@ export default function ReservationsPage() {
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadBookings();
-  }, []);
+    if (session?.user?.email) {
+      loadBookings();
+    }
+  }, [session?.user?.email]);
 
   useEffect(() => {
-    // 로그인한 사용자의 이메일로 예약을 필터링
-    let userBookings = bookings;
-    if (session?.user?.email) {
-      userBookings = bookings.filter(booking => booking.email === session.user.email);
-    }
-    
-    // 검색어로 추가 필터링
+    // 검색어로 필터링 (이미 사용자의 예약만 로드되어 있음)
     if (searchTerm.trim() === '') {
-      setFilteredBookings(userBookings);
+      setFilteredBookings(bookings);
     } else {
-      const filtered = userBookings.filter(booking => 
+      const filtered = bookings.filter(booking => 
         booking.reserver_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         booking.phone_number.includes(searchTerm)
       );
       setFilteredBookings(filtered);
     }
-  }, [searchTerm, bookings, session?.user?.email]);
+  }, [searchTerm, bookings]);
 
   const loadBookings = async () => {
+    if (!session?.user?.email) {
+      console.log('❌ 로그인된 사용자 이메일이 없음');
+      setBookings([]);
+      setFilteredBookings([]);
+      setIsLoading(false);
+      return;
+    }
+
     try {
       setIsLoading(true);
-      const data = await getBookings();
+      console.log('📧 사용자 이메일로 예약 조회:', session.user.email);
+      
+      const data = await getBookingsByEmail(session.user.email);
+      console.log('📊 로드된 예약 수:', data?.length || 0);
+      
       setBookings(data || []);
       setError(null);
     } catch (err) {
-      console.error('예약 데이터 로드 실패:', err);
+      console.error('❌ 예약 데이터 로드 실패:', err);
       setError('예약 데이터를 불러오는데 실패했습니다.');
+      setBookings([]);
     } finally {
       setIsLoading(false);
     }
@@ -216,6 +225,21 @@ export default function ReservationsPage() {
             {session.user.email} 계정의 예약 내역입니다
           </p>
         </div>
+
+        {/* 디버그 정보 카드 (개발 중에만 표시) */}
+        {process.env.NODE_ENV === 'development' && (
+          <Card className="p-4 mb-6 bg-blue-50 dark:bg-blue-900/20 border-blue-200">
+            <h3 className="font-semibold text-blue-800 dark:text-blue-200 mb-2">🔍 디버그 정보</h3>
+            <div className="text-sm space-y-1 text-blue-700 dark:text-blue-300">
+              <p><strong>로그인 이메일:</strong> {session.user.email}</p>
+              <p><strong>전체 예약 수:</strong> {bookings.length}</p>
+              <p><strong>필터링된 예약 수:</strong> {filteredBookings.length}</p>
+              <p><strong>검색어:</strong> {searchTerm || '(없음)'}</p>
+              <p><strong>로딩 상태:</strong> {isLoading ? '로딩 중' : '완료'}</p>
+              {error && <p className="text-red-600"><strong>에러:</strong> {error}</p>}
+            </div>
+          </Card>
+        )}
 
         {/* 검색 */}
         <div className="mb-6">

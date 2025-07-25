@@ -18,6 +18,46 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// Supabase 연결 테스트 함수
+export async function testSupabaseConnection() {
+  try {
+    console.log('🔗 Supabase 연결 테스트 시작...');
+    console.log('🔧 환경 변수 상태:', {
+      url: supabaseUrl ? `${supabaseUrl.substring(0, 30)}...` : '❌ 없음',
+      key: supabaseAnonKey ? `${supabaseAnonKey.substring(0, 30)}...` : '❌ 없음'
+    });
+    
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('❌ 필수 환경 변수가 설정되지 않음!');
+      throw new Error('Supabase 환경 변수가 설정되지 않았습니다.');
+    }
+    
+    const { data, error } = await supabase
+      .from('BookingList')
+      .select('count(*)', { count: 'exact', head: true });
+    
+    if (error) {
+      console.error('❌ Supabase 연결 실패 - 상세 에러:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
+      throw error;
+    }
+    
+    console.log('✅ Supabase 연결 성공! 현재 예약 수:', data);
+    return true;
+  } catch (error) {
+    console.error('❌ Supabase 연결 테스트 완전 실패:', {
+      error: error,
+      message: error instanceof Error ? error.message : '알 수 없는 에러',
+      type: typeof error
+    });
+    throw error;
+  }
+}
+
 export interface Booking {
   id?: string;
   reserver_name: string;
@@ -35,17 +75,38 @@ export interface Booking {
 }
 
 export async function createBooking(booking: Omit<Booking, 'id' | 'created_at' | 'updated_at'>) {
-  const { data, error } = await supabase
-    .from('BookingList')
-    .insert([booking])
-    .select()
-    .single();
+  console.log('🔧 createBooking 함수 호출됨:', booking);
+  
+  // Supabase 환경 변수 확인
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error('❌ Supabase 환경 변수가 설정되지 않음!');
+    throw new Error('Supabase 설정이 올바르지 않습니다. 환경 변수를 확인해주세요.');
+  }
+  
+  try {
+    console.log('🚀 Supabase insert 실행 중...');
+    const { data, error } = await supabase
+      .from('BookingList')
+      .insert([booking])
+      .select()
+      .single();
 
-  if (error) {
+    if (error) {
+      console.error('❌ Supabase insert 에러:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
+      throw error;
+    }
+
+    console.log('✅ Supabase insert 성공:', data);
+    return data;
+  } catch (error) {
+    console.error('❌ createBooking 함수 에러:', error);
     throw error;
   }
-
-  return data;
 }
 
 export async function getBookings() {
@@ -59,6 +120,30 @@ export async function getBookings() {
   }
 
   return data;
+}
+
+// 특정 이메일의 예약만 가져오기
+export async function getBookingsByEmail(email: string) {
+  console.log('📧 이메일로 예약 조회 시작:', email);
+  
+  try {
+    const { data, error } = await supabase
+      .from('BookingList')
+      .select('*')
+      .eq('email', email)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('❌ 이메일 기반 예약 조회 실패:', error);
+      throw error;
+    }
+
+    console.log('✅ 이메일 기반 예약 조회 성공:', { email, count: data?.length || 0, data });
+    return data || [];
+  } catch (error) {
+    console.error('❌ getBookingsByEmail 에러:', error);
+    throw error;
+  }
 }
 
 export async function getBookingById(id: string) {
