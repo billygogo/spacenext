@@ -4,10 +4,11 @@ import { supabase } from '@/lib/supabase';
 // 특정 예약 조회
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const bookingId = params.id;
+    const { id } = await params;
+    const bookingId = id;
 
     if (!bookingId) {
       return NextResponse.json(
@@ -47,10 +48,11 @@ export async function GET(
 // 예약 정보 수정
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const bookingId = params.id;
+    const { id } = await params;
+    const bookingId = id;
     const updateData = await request.json();
 
     if (!bookingId) {
@@ -116,10 +118,11 @@ export async function PATCH(
 // 예약 삭제 (관리자용)
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const bookingId = params.id;
+    const { id } = await params;
+    const bookingId = id;
 
     if (!bookingId) {
       return NextResponse.json(
